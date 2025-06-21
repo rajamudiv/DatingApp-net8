@@ -1,10 +1,12 @@
-import { HttpClient, HttpHeaders } from '@angular/common/http';
-import { inject, Injectable, signal } from '@angular/core';
+import { HttpClient, HttpHeaders, HttpParams, HttpResponse } from '@angular/common/http';
+import { inject, Injectable, model, signal } from '@angular/core';
 import { environment } from '../../environments/environment';
 import { Member } from '../_models/member';
 import { AccountService } from './account.service';
 import { of, tap } from 'rxjs';
 import { Photo } from '../_models/photo';
+import { PaginatedResult } from '../_models/pagination';
+import { UserParams } from '../_models/userParams';
 
 @Injectable({
   providedIn: 'root'
@@ -12,52 +14,106 @@ import { Photo } from '../_models/photo';
 export class MembersService {
   private http = inject(HttpClient);  
   baseUrl = environment.apiUrl;
-  members = signal<Member[]>([]);
+  //members = signal<Member[]>([]);
+  paginatedResult = signal<PaginatedResult<Member[]> | null>(null);
+  memberCache = new Map();
+  private accountService = inject(AccountService);
+  user = this.accountService.currentUser();
+  userParams = signal<UserParams>(new UserParams(this.accountService.currentUser()));
+
+  resetUserParams(){
+    this.userParams.set(new UserParams(this.user));
+  }
 
   getMembers() {
-    return this.http.get<Member[]>(this.baseUrl + 'users').subscribe({
-    next: members => this.members.set(members)
+    let respone;
+    const userParamsValue = this.userParams();
+    if (this.memberCache && userParamsValue) {
+      respone = this.memberCache.get(Object.values(userParamsValue).join('-'));
+    }
+    
+    if (respone) {
+      return this.setPaginatedResponse(respone);
+    }
+    let params = this.setPaginationHeaders(
+      userParamsValue?.pageNumber ?? 1,
+      userParamsValue?.pageSize ?? 5
+    );
+
+    if (userParamsValue) {
+      params = params.append('minAge', userParamsValue.minAge.toString());
+      params = params.append('maxAge', userParamsValue.maxAge.toString());
+      params = params.append('gender', userParamsValue.gender);
+      params = params.append('orderBy', userParamsValue.orderBy);
+    }
+
+    return this.http.get<Member[]>(this.baseUrl + 'users', {observe: 'response', params}).subscribe({
+    next: response => {
+      this.setPaginatedResponse(response);
+      if (userParamsValue) {
+        this.memberCache.set(Object.values(userParamsValue).join('-'), response);
+      }
+    }
     });
   }
 
-  getMember(username: string) {
-    const member = this.members().find(m => m.userName === username);
-    if (member !== undefined) {
-      return of (member);
+  private setPaginatedResponse(response: HttpResponse<Member[]>){
+    this.paginatedResult.set({
+      items: response.body as Member[],
+      pagination: JSON.parse(response.headers.get("Pagination")!)
+    });
+  }
+
+  private setPaginationHeaders(pageNumber: number, pageSize: number) {
+    let params = new HttpParams();
+    if (pageNumber && pageSize) {
+      params = params.append('pageNumber', pageNumber.toString());
+      params = params.append('pageSize', pageSize.toString());
     }
-    return this.http.get<Member>(this.baseUrl + 'users/' + username);
+    return params;
+  }
+
+  getMember(username: string) {
+    const member: Member = [...this.memberCache.values()]
+      .reduce((arr, elem) => arr.concat(elem.body), [])
+      .find((m: Member) => m.userName === username);
+    if (member) {
+      return of(member);
+    }
+     return this.http.get<Member>(this.baseUrl + 'users/' + username);
   } 
 
   updateMember(member: Member) {
     return this.http.put<Member>(this.baseUrl + 'users', member).pipe(
-      tap(() => {
-        this.members.update(members => members.map(m => m.userName === member.userName ? member : m))
-      })
+      // tap(() => {
+      //   this.members.update(members => members.map(m => m.userName === member.userName ? member : m))
+      // })
       
     )
   }
 
   setMainPhoto(photo: Photo) {
     return this.http.put(this.baseUrl + 'users/set-main-photo/' + photo.id, {}).pipe(
-      tap(() => {
-        this.members.update(members => members.map(m => {
-          if (m.photos.includes(photo)){
-            m.photoUrl = photo.url;
-          }
-          return m;
-        })
-    )
-  }))
+  //     tap(() => {
+  //       this.members.update(members => members.map(m => {
+  //         if (m.photos.includes(photo)){
+  //           m.photoUrl = photo.url;
+  //         }
+  //         return m;
+  //       })
+  //   )
+  // })
+)
 }
 
 deletePhoto(photo: Photo) {
   return this.http.delete(this.baseUrl + 'users/delete-photo/' + photo.id).pipe(
-    tap(() => {
-      this.members.update(members => members.map(m => {
-        m.photos = m.photos.filter(p => p.id !== photo.id);
-        return m;
-      }))
-    })
+    // tap(() => {
+    //   this.members.update(members => members.map(m => {
+    //     m.photos = m.photos.filter(p => p.id !== photo.id);
+    //     return m;
+    //   }))
+    // })
   );
 }
 }
