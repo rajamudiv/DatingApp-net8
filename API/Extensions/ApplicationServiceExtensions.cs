@@ -1,6 +1,7 @@
 using System;
 using API.Data;
 using API.Data.Migrations;
+using API.Entities;
 using API.Helpers;
 using API.Interfaces;
 using API.Services;
@@ -22,6 +23,7 @@ public static class ApplicationServiceExtensions
         services.AddScoped<ITokenService, TokenService>();
         services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme);
         services.AddScoped<IUserRepository, UserRepository>();
+        services.AddScoped<ILikesRepository, LikesRepository>();
         services.AddScoped<IPhotoService, PhotoService>();
         services.AddScoped<LogUserActivity>();
         services.AddAutoMapper(AppDomain.CurrentDomain.GetAssemblies());
